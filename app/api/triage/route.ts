@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const { description } = await req.json();
 
   const completion = await client.chat.completions.create({
-    model: "llama3-70b-8192",
+    model: "llama3-70b-versatile",
     messages: [
       { role: "system", content: TRIAGE_PROMPT },
       { role: "user", content: description }
