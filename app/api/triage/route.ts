@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Extract JSON from LLM output
 function extractJson(text: string): string | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -8,12 +7,11 @@ function extractJson(text: string): string | null {
   return text.slice(start, end + 1);
 }
 
-// Try to repair JSON if invalid
-function tryRepairJson(jsonString: string): any {
+function tryRepairJson(text: string): any {
   try {
-    return JSON.parse(jsonString);
+    return JSON.parse(text);
   } catch {
-    let fixed = jsonString;
+    let fixed = text;
 
     fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
     fixed = fixed.replace(/[“”]/g, '"');
@@ -31,9 +29,9 @@ export async function POST(req: NextRequest) {
   const { description } = await req.json();
 
   const prompt = `
-You are CAF Copilot, an AI triage system.
+You are CAF Copilot.
 
-Return STRICT JSON ONLY:
+You MUST return STRICT JSON in the following format:
 
 {
   "category": string,
@@ -48,29 +46,34 @@ Return STRICT JSON ONLY:
   }
 }
 
-Tenant message:
+No explanations. No extra text. JSON only.
+
+Tenant description:
 ${description}
 `;
 
   const response = await fetch(
-    "https://router.huggingface.co/hf-inference/models/meta-llama/Llama-3.2-3B-Instruct",
+    "https://router.huggingface.co/hf-inference/models/microsoft/Phi-3-mini-4k-instruct",
     {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.HF_TOKEN}`,
         "Content-Type": "application/json"
       },
-      method: "POST",
       body: JSON.stringify({
         inputs: prompt,
-        parameters: { max_new_tokens: 400 }
+        parameters: {
+          max_new_tokens: 400,
+          temperature: 0.2
+        }
       })
     }
   );
 
   if (!response.ok) {
     return NextResponse.json({
-      error: `HF Error: ${response.status}`,
-      message: await response.text()
+      error: `HuggingFace Error: ${response.status}`,
+      details: await response.text()
     });
   }
 
@@ -86,17 +89,18 @@ ${description}
 
   if (!extracted) {
     return NextResponse.json({
-      error: "Could not extract JSON from AI response.",
-      raw: aiText
+      error: "Could not extract JSON",
+      raw: aiText,
     });
   }
 
   const repaired = tryRepairJson(extracted);
+
   if (!repaired) {
     return NextResponse.json({
-      error: "Could not repair JSON.",
-      raw: extracted,
-      full: aiText
+      error: "JSON repair failed",
+      json: extracted,
+      raw: aiText
     });
   }
 
