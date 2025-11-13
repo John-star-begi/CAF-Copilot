@@ -4,7 +4,7 @@ export async function POST(req: NextRequest) {
   const { description } = await req.json();
 
   const prompt = `
-Return ONLY valid JSON.
+Return ONLY valid JSON:
 
 {
   "category": string,
@@ -23,7 +23,7 @@ ${description}
 `;
 
   const response = await fetch(
-    "https://router.huggingface.co/hf-inference/models/google/flan-t5-base",
+    "https://api-inference.huggingface.co/models/google/flan-t5-base",
     {
       method: "POST",
       headers: {
@@ -31,8 +31,7 @@ ${description}
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        inputs: prompt,
-        parameters: { max_new_tokens: 300 }
+        inputs: prompt
       })
     }
   );
@@ -44,15 +43,20 @@ ${description}
     });
   }
 
-  const data = await response.json();
-  const output = data[0]?.generated_text || "";
+  const result = await response.json();
+
+  const output =
+    result[0]?.generated_text ||
+    result.generated_text ||
+    result.text ||
+    "";
 
   try {
     const json = JSON.parse(output);
     return NextResponse.json(json);
-  } catch (e) {
+  } catch {
     return NextResponse.json({
-      error: "Invalid JSON returned by model",
+      error: "Model did not return valid JSON",
       raw: output
     });
   }
