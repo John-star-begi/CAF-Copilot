@@ -1,29 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
-import Groq from "groq-sdk";
-import { TRIAGE_PROMPT } from "../../../lib/prompts";
-
-const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function POST(req: NextRequest) {
   const { description } = await req.json();
 
-  const completion = await client.chat.completions.create({
-    model: "llama3-70b-versatile",
-    messages: [
-      { role: "system", content: TRIAGE_PROMPT },
-      { role: "user", content: description }
-    ]
-  });
+  const prompt = `
+You are CAF Copilot, an AI system for maintenance triage.
 
-  const content = completion.choices[0].message.content;
+Analyze the tenant message and return STRICT JSON:
 
-  try {
-    return NextResponse.json(JSON.parse(content ?? "{}"));
-  } catch (e) {
-    return NextResponse.json(
-      { error: "Invalid JSON from AI", raw: content },
-      { status: 500 }
-    );
+{
+  "category": string,
+  "hazards": string[],
+  "questions": string[],
+  "summary": string,
+  "diagnosis": {
+    "most_likely": string,
+    "alternatives": string[],
+    "confidence": number,
+    "reasoning": string
   }
 }
 
+Tenant message:
+${description}
+
+Return JSON ONLY.
+`;
+
+  const response = await fetch(
+    "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct",
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      method: "POST",
+      body: JSON.stringify({
+        inputs: prompt
+      })
+    }
+  );
+
+  const data = await response.json();
+
+  const aiText = data[0]?.generated_text ?? data.generated_text;
+
+  try {
+    return NextResponse.json(JSON.parse(aiText));
+  } catch {
+    return NextResponse.json({
+      error: "Invalid JSON from AI",
+      raw: aiText
+    });
+  }
+}
