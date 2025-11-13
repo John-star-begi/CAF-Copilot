@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Extract JSON from a messy LLM response
+// Extract JSON from LLM output
 function extractJson(text: string): string | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -8,20 +8,15 @@ function extractJson(text: string): string | null {
   return text.slice(start, end + 1);
 }
 
-// Fix common JSON errors from LLMs
+// Try to repair JSON if invalid
 function tryRepairJson(jsonString: string): any {
   try {
     return JSON.parse(jsonString);
   } catch {
     let fixed = jsonString;
 
-    // Remove trailing commas
     fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
-
-    // Replace fancy quotes with normal quotes
     fixed = fixed.replace(/[“”]/g, '"');
-
-    // Replace single quotes with double quotes
     fixed = fixed.replace(/'/g, '"');
 
     try {
@@ -36,9 +31,9 @@ export async function POST(req: NextRequest) {
   const { description } = await req.json();
 
   const prompt = `
-You are CAF Copilot, an AI system for maintenance triage.
+You are CAF Copilot, an AI triage system.
 
-Analyze the tenant message and return STRICT JSON only:
+Return STRICT JSON ONLY:
 
 {
   "category": string,
@@ -55,12 +50,10 @@ Analyze the tenant message and return STRICT JSON only:
 
 Tenant message:
 ${description}
-
-Return ONLY JSON.
 `;
 
   const response = await fetch(
-    "https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-7B-Instruct",
+    "https://router.huggingface.co/hf-inference/models/meta-llama/Llama-3.2-3B-Instruct",
     {
       headers: {
         Authorization: `Bearer ${process.env.HF_TOKEN}`,
@@ -69,16 +62,20 @@ Return ONLY JSON.
       method: "POST",
       body: JSON.stringify({
         inputs: prompt,
-        parameters: {
-          max_new_tokens: 400
-        }
+        parameters: { max_new_tokens: 400 }
       })
     }
   );
 
+  if (!response.ok) {
+    return NextResponse.json({
+      error: `HF Error: ${response.status}`,
+      message: await response.text()
+    });
+  }
+
   const data = await response.json();
 
-  // HuggingFace returns different formats depending on the model:
   const aiText =
     data[0]?.generated_text ||
     data.generated_text ||
@@ -95,7 +92,6 @@ Return ONLY JSON.
   }
 
   const repaired = tryRepairJson(extracted);
-
   if (!repaired) {
     return NextResponse.json({
       error: "Could not repair JSON.",
