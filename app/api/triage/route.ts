@@ -1,37 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-function extractJson(text: string): string | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) return null;
-  return text.slice(start, end + 1);
-}
-
-function tryRepairJson(text: string): any {
-  try {
-    return JSON.parse(text);
-  } catch {
-    let fixed = text;
-
-    fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
-    fixed = fixed.replace(/[“”]/g, '"');
-    fixed = fixed.replace(/'/g, '"');
-
-    try {
-      return JSON.parse(fixed);
-    } catch {
-      return null;
-    }
-  }
-}
-
 export async function POST(req: NextRequest) {
   const { description } = await req.json();
 
   const prompt = `
-You are CAF Copilot.
-
-You MUST return STRICT JSON in the following format:
+Return ONLY valid JSON.
 
 {
   "category": string,
@@ -41,68 +14,46 @@ You MUST return STRICT JSON in the following format:
   "diagnosis": {
     "most_likely": string,
     "alternatives": string[],
-    "confidence": number,
-    "reasoning": string
+    "confidence": number
   }
 }
-
-No explanations. No extra text. JSON only.
 
 Tenant description:
 ${description}
 `;
 
   const response = await fetch(
-    "https://router.huggingface.co/hf-inference/models/microsoft/Phi-3-mini-4k-instruct",
+    "https://router.huggingface.co/hf-inference/models/google/flan-t5-base",
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.HF_TOKEN}`,
+        "Authorization": `Bearer ${process.env.HF_TOKEN}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         inputs: prompt,
-        parameters: {
-          max_new_tokens: 400,
-          temperature: 0.2
-        }
+        parameters: { max_new_tokens: 300 }
       })
     }
   );
 
   if (!response.ok) {
     return NextResponse.json({
-      error: `HuggingFace Error: ${response.status}`,
+      error: `HF Error: ${response.status}`,
       details: await response.text()
     });
   }
 
   const data = await response.json();
+  const output = data[0]?.generated_text || "";
 
-  const aiText =
-    data[0]?.generated_text ||
-    data.generated_text ||
-    data.text ||
-    JSON.stringify(data);
-
-  const extracted = extractJson(aiText);
-
-  if (!extracted) {
+  try {
+    const json = JSON.parse(output);
+    return NextResponse.json(json);
+  } catch (e) {
     return NextResponse.json({
-      error: "Could not extract JSON",
-      raw: aiText,
+      error: "Invalid JSON returned by model",
+      raw: output
     });
   }
-
-  const repaired = tryRepairJson(extracted);
-
-  if (!repaired) {
-    return NextResponse.json({
-      error: "JSON repair failed",
-      json: extracted,
-      raw: aiText
-    });
-  }
-
-  return NextResponse.json(repaired);
 }
