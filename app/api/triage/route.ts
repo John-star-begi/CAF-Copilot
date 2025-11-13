@@ -1,110 +1,105 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-// Extract JSON between the first { and last }
-function extractJson(text: string): string | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) return null;
-  return text.slice(start, end + 1);
-}
-
-// Try to fix small JSON formatting issues
-function tryRepairJson(text: string): any {
-  try {
-    return JSON.parse(text);
-  } catch {
-    let fixed = text;
-    fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
-    fixed = fixed.replace(/[“”]/g, '"');
-    fixed = fixed.replace(/'/g, '"');
-
-    try {
-      return JSON.parse(fixed);
-    } catch {
-      return null;
-    }
-  }
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const { description } = await req.json();
 
-    const prompt = `
-You are CAF-Copilot, a maintenance triage AI.
-Analyze the tenant description and return ONLY valid JSON.
+    if (!description || description.trim().length === 0) {
+      return NextResponse.json({ error: "No description provided" }, { status: 400 });
+    }
 
-JSON structure:
-{
-  "category": "string",
-  "hazards": ["string"],
-  "questions": ["string"],
-  "summary": "string",
-  "diagnosis": {
-    "most_likely": "string",
-    "alternatives": ["string"],
-    "confidence": number
-  }
-}
-
-Tenant description:
-${description}
-
-Respond with JSON only, no explanations.
-`;
-
+    // Call OpenRouter Llama 3.3 70B Instruct
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://yourdomain.com",
-        "X-Title": "CAF-Copilot"
       },
       body: JSON.stringify({
         model: "meta-llama/llama-3.3-70b-instruct",
-        messages: [
-          { role: "system", content: "You output ONLY pure JSON. No text before or after." },
-          { role: "user", content: prompt }
-        ],
-        max_tokens: 600,
-        temperature: 0.2
-      })
-    });
+        temperature: 0.2,
+        max_tokens: 1200,
 
-    if (!response.ok) {
-      return NextResponse.json({
-        error: `OpenRouter Error: ${response.status}`,
-        details: await response.text()
-      });
+        messages: [
+          {
+            role: "system",
+            content: `
+You are CAF Copilot, an AI assistant for a maintenance coordination company.
+Always respond in CLEAN VALID JSON ONLY. Never add commentary.
+
+Your job:
+
+1. Analyze the job description for trade category and hazards.
+2. Produce a short, clear summary.
+3. Generate a unified checklist: all questions needed before diagnosis.
+4. Generate a tenant message containing ONLY the unanswered or unknown items.
+5. Produce a simple diagnosis with confidence.
+
+STRUCTURE YOUR RESPONSE EXACTLY LIKE THIS:
+
+{
+  "category": "Plumbing",
+  "hazards": ["Water damage", "Slip hazard"],
+  "summary": "Short issue summary...",
+  "questions_checklist": [
+    {
+      "id": "unique_id_here",
+      "question": "What type of tap is it?",
+      "reason": "Needed to determine cartridge type"
     }
+  ],
+  "tenant_message": "Full message to tenant asking ONLY unanswered items.",
+  "diagnosis": {
+    "most_likely": "Worn mixer cartridge",
+    "alternatives": ["Loose connection", "High water pressure"],
+    "confidence": 0.82
+  }
+}
+
+RULES:
+- ALWAYS RETURN VALID JSON.
+- NO NOTES OR COMMENTARY OUTSIDE JSON.
+- Checklist must be 3 to 10 items.
+- Tenant message must be polite and grouped into a single message, not bullets.
+            `
+          },
+          {
+            role: "user",
+            content: description
+          }
+        ]
+      }),
+    });
 
     const data = await response.json();
-    const output = data.choices?.[0]?.message?.content || "";
 
-    const extracted = extractJson(output);
-    if (!extracted) {
-      return NextResponse.json({
-        error: "Could not extract JSON",
-        raw: output
-      });
+    if (!data.choices || !data.choices[0]?.message?.content) {
+      return NextResponse.json(
+        { error: "Invalid AI response", details: data },
+        { status: 500 }
+      );
     }
 
-    const repaired = tryRepairJson(extracted);
-    if (!repaired) {
-      return NextResponse.json({
-        error: "Returned JSON invalid",
-        extracted,
-        full: output
-      });
+    let parsed;
+
+    try {
+      parsed = JSON.parse(data.choices[0].message.content);
+    } catch (err) {
+      return NextResponse.json(
+        { error: "Invalid JSON from AI", raw: data.choices[0].message.content },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json(repaired);
+    return NextResponse.json(parsed);
 
-  } catch (err: any) {
-    return NextResponse.json({
-      error: "Server error",
-      message: err.message
-    });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        error: "Server error",
+        details: error?.message || error,
+      },
+      { status: 500 }
+    );
   }
 }
