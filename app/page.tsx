@@ -56,6 +56,24 @@ type FinalDiagnosisResult = {
   diagnoses: FinalDiagnosisItem[];
 };
 
+type PricingBreakdown = {
+  currency: string;
+  labour_minutes_estimated: number;
+  labour_cost_estimated: number;
+  materials_cost_estimated: number;
+  materials_with_buffer: number;
+  materials_with_markup: number;
+  subtotal_before_markup: number;
+  job_markup_percent: number;
+  job_markup_amount: number;
+  final_recommended_price: number;
+  notes: string;
+};
+
+type PricingResult = {
+  price_recommendation: PricingBreakdown;
+};
+
 export default function Home() {
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
@@ -84,6 +102,11 @@ export default function Home() {
   const [finalDiagError, setFinalDiagError] = useState<string | null>(null);
   const [finalDiagResult, setFinalDiagResult] = useState<FinalDiagnosisResult | null>(null);
   const [selectedDiagIndex, setSelectedDiagIndex] = useState<number | null>(null);
+
+  // Pricing (Phase 4C)
+  const [pricingByIndex, setPricingByIndex] = useState<Record<number, PricingBreakdown>>({});
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingError, setPricingError] = useState<string | null>(null);
 
   // Auto-generate short context after triage
   useEffect(() => {
@@ -126,6 +149,9 @@ export default function Home() {
     setFinalDiagResult(null);
     setFinalDiagError(null);
     setSelectedDiagIndex(null);
+    setPricingByIndex({});
+    setPricingError(null);
+    setPricingLoading(false);
 
     try {
       const res = await fetch("/api/triage", {
@@ -257,6 +283,9 @@ export default function Home() {
     setFinalDiagResult(null);
     setFinalDiagError(null);
     setSelectedDiagIndex(null);
+    setPricingByIndex({});
+    setPricingError(null);
+    setPricingLoading(false);
 
     try {
       const res = await fetch("/api/vision/analyze", {
@@ -300,6 +329,9 @@ export default function Home() {
     setFinalDiagError(null);
     setFinalDiagResult(null);
     setSelectedDiagIndex(null);
+    setPricingByIndex({});
+    setPricingError(null);
+    setPricingLoading(false);
 
     try {
       const res = await fetch("/api/triage/final-diagnosis", {
@@ -333,6 +365,56 @@ export default function Home() {
     }
   };
 
+  // ------- RUN PRICING (LLAMA SUGGESTION) --------
+  const runPricing = async () => {
+    if (selectedDiagIndex == null || !finalDiagResult) {
+      alert("Select a diagnosis card first.");
+      return;
+    }
+
+    const diag = finalDiagResult.diagnoses?.[selectedDiagIndex];
+    if (!diag) {
+      alert("Invalid diagnosis selection.");
+      return;
+    }
+
+    setPricingLoading(true);
+    setPricingError(null);
+
+    try {
+      const res = await fetch("/api/triage/pricing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          diagnosis: diag,
+          description,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Pricing error", data);
+        setPricingError(data.error || "Unknown pricing error");
+      } else {
+        const rec = data.price_recommendation as PricingBreakdown | undefined;
+        if (!rec) {
+          setPricingError("Pricing response missing price_recommendation");
+        } else {
+          setPricingByIndex((prev) => ({
+            ...prev,
+            [selectedDiagIndex]: rec,
+          }));
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setPricingError(err?.message || "Error calling pricing API");
+    } finally {
+      setPricingLoading(false);
+    }
+  };
+
   const formatConfidence = (value?: number) => {
     if (value == null || Number.isNaN(value)) return "Unknown";
     const num = value <= 1 ? value * 100 : value;
@@ -360,13 +442,16 @@ export default function Home() {
       ? finalDiagResult.diagnoses?.[selectedDiagIndex] || null
       : null;
 
+  const selectedPricing: PricingBreakdown | undefined =
+    selectedDiagIndex != null ? pricingByIndex[selectedDiagIndex] : undefined;
+
   return (
     <main className="p-8 max-w-5xl mx-auto space-y-8 bg-slate-50 min-h-screen">
       <header>
         <h1 className="text-3xl font-bold mb-2">CAF Copilot – Triage</h1>
         <p className="text-gray-600 text-sm">
           Step 1: Run triage (Llama). Step 2: Run vision recon (Gemini). Step 3:
-          Run final diagnosis (Llama) with multiple options.
+          Run final diagnosis (Llama) and price suggestion.
         </p>
       </header>
 
@@ -551,7 +636,7 @@ export default function Home() {
           <p className="text-sm text-gray-600">
             Upload tenant photos / videos, run vision recon (Gemini) to get a
             detailed visual description, then run final diagnosis (Llama) to get
-            multiple diagnosis cards.
+            multiple diagnosis cards and price suggestions.
           </p>
 
           {/* Upload area */}
@@ -740,8 +825,8 @@ export default function Home() {
                 Diagnosis Options
               </h3>
               <p className="text-xs text-gray-500">
-                Click a card to view the full repair process. Pricing will come in
-                a later phase.
+                Click a card to view the full repair process and pricing
+                suggestion.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
@@ -750,7 +835,9 @@ export default function Home() {
                     key={idx}
                     type="button"
                     onClick={() => setSelectedDiagIndex(idx)}
-                    className="text-left border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-sm transition cursor-pointer"
+                    className={`text-left border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-sm transition cursor-pointer ${
+                      selectedDiagIndex === idx ? "ring-2 ring-slate-900" : ""
+                    }`}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-semibold text-gray-900">
@@ -788,7 +875,7 @@ export default function Home() {
         </section>
       )}
 
-      {/* MODAL FOR SELECTED DIAGNOSIS */}
+      {/* MODAL FOR SELECTED DIAGNOSIS + PRICING */}
       {selectedDiagnosis && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-auto p-5 space-y-4">
@@ -896,14 +983,73 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="pt-2 flex justify-end">
-              <button
-                type="button"
-                disabled
-                className="bg-gray-400 text-white px-4 py-2 rounded-md text-sm font-medium cursor-not-allowed"
-              >
-                Calculate Price (coming next phase)
-              </button>
+            {/* Pricing section */}
+            <div className="pt-3 border-t mt-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-gray-800">
+                  Pricing Suggestion (AI)
+                </h3>
+                <button
+                  type="button"
+                  onClick={runPricing}
+                  disabled={pricingLoading}
+                  className="bg-slate-900 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-black disabled:bg-gray-400"
+                >
+                  {pricingLoading ? "Calculating..." : "Calculate Price"}
+                </button>
+              </div>
+              {pricingError && (
+                <p className="text-xs text-red-600">{pricingError}</p>
+              )}
+
+              {selectedPricing && (
+                <div className="text-sm text-gray-800 space-y-1 bg-gray-50 rounded-lg p-3">
+                  <p className="font-semibold">
+                    Recommended quote:{" "}
+                    <span className="text-slate-900">
+                      {selectedPricing.currency}{" "}
+                      {selectedPricing.final_recommended_price.toFixed(2)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    (AI suggestion only – final price is at dispatcher&apos;s
+                    discretion.)
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    <div>
+                      <p>Labour est: {selectedPricing.labour_minutes_estimated} minutes</p>
+                      <p>Labour cost: {selectedPricing.currency}{" "}
+                        {selectedPricing.labour_cost_estimated.toFixed(2)}
+                      </p>
+                    </div>
+                    <div>
+                      <p>
+                        Materials (base): {selectedPricing.currency}{" "}
+                        {selectedPricing.materials_cost_estimated.toFixed(2)}
+                      </p>
+                      <p>
+                        Materials + buffer + markup: {selectedPricing.currency}{" "}
+                        {selectedPricing.materials_with_markup.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-700 mt-2">
+                    Subtotal before markup: {selectedPricing.currency}{" "}
+                    {selectedPricing.subtotal_before_markup.toFixed(2)} • Job
+                    markup: {selectedPricing.job_markup_percent}% (
+                    {selectedPricing.currency}{" "}
+                    {selectedPricing.job_markup_amount.toFixed(2)})
+                  </p>
+
+                  {selectedPricing.notes && (
+                    <p className="text-xs text-gray-600 mt-1">
+                      Notes: {selectedPricing.notes}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
