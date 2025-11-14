@@ -374,7 +374,7 @@ export default function Home() {
             {triageResult.questions_checklist.map((q) => (
               <div
                 key={q.id}
-                className "border rounded-lg p-3 bg-gray-50 space-y-2"
+                className="border rounded-lg p-3 bg-gray-50 space-y-2"
               >
                 <p className="font-medium text-sm">{q.question}</p>
                 {q.reason && (
