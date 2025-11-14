@@ -38,6 +38,24 @@ type VisionRecon = {
   location_hint?: string;
 };
 
+type FinalDiagnosisItem = {
+  title: string;
+  description: string;
+  confidence: number;
+  severity: string;
+  urgency_hours: number;
+  safety_concerns: string[];
+  trade_required: string;
+  repair_steps: string[];
+  materials_needed: string[];
+  estimated_labor_minutes: number;
+  estimated_material_cost: number;
+};
+
+type FinalDiagnosisResult = {
+  diagnoses: FinalDiagnosisItem[];
+};
+
 export default function Home() {
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
@@ -60,6 +78,12 @@ export default function Home() {
   const [visionError, setVisionError] = useState<string | null>(null);
   const [visionRecon, setVisionRecon] = useState<VisionRecon | null>(null);
   const [visionReconRaw, setVisionReconRaw] = useState(""); // editable JSON
+
+  // Final diagnosis (Phase 4B)
+  const [finalDiagLoading, setFinalDiagLoading] = useState(false);
+  const [finalDiagError, setFinalDiagError] = useState<string | null>(null);
+  const [finalDiagResult, setFinalDiagResult] = useState<FinalDiagnosisResult | null>(null);
+  const [selectedDiagIndex, setSelectedDiagIndex] = useState<number | null>(null);
 
   // Auto-generate short context after triage
   useEffect(() => {
@@ -99,6 +123,9 @@ export default function Home() {
     setVisionRecon(null);
     setVisionReconRaw("");
     setVisionError(null);
+    setFinalDiagResult(null);
+    setFinalDiagError(null);
+    setSelectedDiagIndex(null);
 
     try {
       const res = await fetch("/api/triage", {
@@ -227,6 +254,9 @@ export default function Home() {
     setVisionError(null);
     setVisionRecon(null);
     setVisionReconRaw("");
+    setFinalDiagResult(null);
+    setFinalDiagError(null);
+    setSelectedDiagIndex(null);
 
     try {
       const res = await fetch("/api/vision/analyze", {
@@ -255,19 +285,88 @@ export default function Home() {
     }
   };
 
+  // ------- RUN FINAL DIAGNOSIS (LLAMA) --------
+  const runFinalDiagnosis = async () => {
+    if (!triageResult) {
+      alert("Run triage first.");
+      return;
+    }
+    if (!visionReconRaw.trim()) {
+      alert("Run vision recon first (and ensure recon JSON is present).");
+      return;
+    }
+
+    setFinalDiagLoading(true);
+    setFinalDiagError(null);
+    setFinalDiagResult(null);
+    setSelectedDiagIndex(null);
+
+    try {
+      const res = await fetch("/api/triage/final-diagnosis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description,
+          triage: triageResult,
+          answers,
+          tenant_text: tenantText,
+          vision_recon_raw: visionReconRaw,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Final diagnosis error", data);
+        setFinalDiagError(data.error || "Unknown final diagnosis error");
+      } else {
+        setFinalDiagResult(data);
+        if (data.diagnoses && data.diagnoses.length > 0) {
+          setSelectedDiagIndex(0);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setFinalDiagError(err?.message || "Error calling final diagnosis API");
+    } finally {
+      setFinalDiagLoading(false);
+    }
+  };
+
   const formatConfidence = (value?: number) => {
     if (value == null || Number.isNaN(value)) return "Unknown";
     const num = value <= 1 ? value * 100 : value;
     return `${Math.round(num)}%`;
   };
 
+  const formatUrgency = (hours: number | undefined) => {
+    if (hours == null || Number.isNaN(hours)) return "Not specified";
+    if (hours <= 4) return "Attend within 4 hours";
+    if (hours <= 24) return "Attend within 24 hours";
+    if (hours <= 72) return "Attend within 3 days";
+    return `Attend within ${hours} hours`;
+  };
+
+  const severityColor = (severity: string | undefined) => {
+    const s = (severity || "").toLowerCase();
+    if (s === "high") return "bg-red-100 text-red-800";
+    if (s === "medium") return "bg-amber-100 text-amber-800";
+    if (s === "low") return "bg-emerald-100 text-emerald-800";
+    return "bg-gray-100 text-gray-700";
+  };
+
+  const selectedDiagnosis: FinalDiagnosisItem | null =
+    finalDiagResult && selectedDiagIndex != null
+      ? finalDiagResult.diagnoses?.[selectedDiagIndex] || null
+      : null;
+
   return (
     <main className="p-8 max-w-5xl mx-auto space-y-8 bg-slate-50 min-h-screen">
       <header>
         <h1 className="text-3xl font-bold mb-2">CAF Copilot – Triage</h1>
         <p className="text-gray-600 text-sm">
-          Step 1: Run triage (Llama). Step 2: Run vision recon (Gemini). Step 3
-          (next phase): confirm & run final diagnosis.
+          Step 1: Run triage (Llama). Step 2: Run vision recon (Gemini). Step 3:
+          Run final diagnosis (Llama) with multiple options.
         </p>
       </header>
 
@@ -443,15 +542,16 @@ export default function Home() {
         </section>
       )}
 
-      {/* MEDIA UPLOAD + VISION RECON */}
+      {/* MEDIA UPLOAD + VISION RECON + FINAL DIAGNOSIS */}
       {(triageResult || tenantText || tenantMessage) && (
         <section className="border rounded-xl p-5 space-y-5 bg-white">
-          <h2 className="text-xl font-semibold">Step 3 – Vision Recon (Gemini)</h2>
+          <h2 className="text-xl font-semibold">
+            Step 3 – Vision Recon & Final Diagnosis
+          </h2>
           <p className="text-sm text-gray-600">
-            Upload tenant photos / videos below, review or edit the short context,
-            then run vision recon. Gemini will describe what it sees in detail,
-            without diagnosing. You can edit the recon JSON before we use it in
-            the final diagnosis phase.
+            Upload tenant photos / videos, run vision recon (Gemini) to get a
+            detailed visual description, then run final diagnosis (Llama) to get
+            multiple diagnosis cards.
           </p>
 
           {/* Upload area */}
@@ -602,29 +702,211 @@ export default function Home() {
                 </h3>
                 <p className="text-xs text-gray-500 mb-1">
                   This is the full recon report from Gemini. You can edit this
-                  before we send it into the final diagnosis step in the next
-                  phase.
+                  before we send it into the final diagnosis step.
                 </p>
                 <textarea
                   value={visionReconRaw}
                   onChange={(e) => setVisionReconRaw(e.target.value)}
                   className="w-full border p-3 rounded text-xs font-mono bg-gray-50"
-                  rows={12}
+                  rows={10}
                 />
               </div>
 
+              {/* Final diagnosis button */}
               <div className="pt-2">
                 <button
                   type="button"
-                  disabled
-                  className="bg-gray-400 text-white px-4 py-2 rounded-md text-sm font-medium cursor-not-allowed"
+                  onClick={runFinalDiagnosis}
+                  disabled={finalDiagLoading}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-black disabled:bg-gray-400"
                 >
-                  Confirm & Run Final Diagnosis (coming in Phase 4B)
+                  {finalDiagLoading
+                    ? "Running final diagnosis..."
+                    : "Confirm & Run Final Diagnosis"}
                 </button>
+                {finalDiagError && (
+                  <p className="text-xs text-red-600 mt-2">
+                    {finalDiagError}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* DIAGNOSIS CARDS */}
+          {finalDiagResult && finalDiagResult.diagnoses && (
+            <div className="mt-6 border-t pt-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">
+                Diagnosis Options
+              </h3>
+              <p className="text-xs text-gray-500">
+                Click a card to view the full repair process. Pricing will come in
+                a later phase.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                {finalDiagResult.diagnoses.map((d, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setSelectedDiagIndex(idx)}
+                    className="text-left border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-sm transition cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-gray-900">
+                        {d.title || `Diagnosis ${idx + 1}`}
+                      </h4>
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${severityColor(
+                          d.severity
+                        )}`}
+                      >
+                        {d.severity || "unknown"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-700 mb-2 line-clamp-2">
+                      {d.description}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                      <span>
+                        Confidence: {formatConfidence(d.confidence)}
+                      </span>
+                      <span>•</span>
+                      <span>{formatUrgency(d.urgency_hours)}</span>
+                      {d.trade_required && (
+                        <>
+                          <span>•</span>
+                          <span>Trade: {d.trade_required}</span>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           )}
         </section>
+      )}
+
+      {/* MODAL FOR SELECTED DIAGNOSIS */}
+      {selectedDiagnosis && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-auto p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {selectedDiagnosis.title}
+                </h2>
+                <p className="text-xs text-gray-600 mt-1">
+                  Confidence: {formatConfidence(selectedDiagnosis.confidence)} •{" "}
+                  {formatUrgency(selectedDiagnosis.urgency_hours)} • Trade:{" "}
+                  {selectedDiagnosis.trade_required || "N/A"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDiagIndex(null)}
+                className="text-xs text-gray-500 hover:text-gray-800"
+              >
+                Close ✕
+              </button>
+            </div>
+
+            <span
+              className={`inline-flex px-3 py-1 rounded-full text-xs ${severityColor(
+                selectedDiagnosis.severity
+              )}`}
+            >
+              Severity: {selectedDiagnosis.severity || "unknown"}
+            </span>
+
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 mb-1">
+                Description
+              </h3>
+              <p className="text-sm text-gray-800">
+                {selectedDiagnosis.description}
+              </p>
+            </div>
+
+            {selectedDiagnosis.safety_concerns &&
+              selectedDiagnosis.safety_concerns.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 mb-1">
+                    Safety Concerns
+                  </h3>
+                  <ul className="list-disc list-inside text-sm text-gray-800">
+                    {selectedDiagnosis.safety_concerns.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 mb-1">
+                Typical Repair Process (Tradesperson)
+              </h3>
+              {selectedDiagnosis.repair_steps &&
+              selectedDiagnosis.repair_steps.length > 0 ? (
+                <ol className="list-decimal list-inside text-sm text-gray-800 space-y-1">
+                  {selectedDiagnosis.repair_steps.map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-gray-600">
+                  No repair steps provided.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800 mb-1">
+                  Materials Needed
+                </h3>
+                {selectedDiagnosis.materials_needed &&
+                selectedDiagnosis.materials_needed.length > 0 ? (
+                  <ul className="list-disc list-inside text-sm text-gray-800">
+                    {selectedDiagnosis.materials_needed.map((m, i) => (
+                      <li key={i}>{m}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-600">
+                    No specific materials listed.
+                  </p>
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800 mb-1">
+                  Estimated Effort
+                </h3>
+                <p className="text-sm text-gray-800">
+                  Labour:{" "}
+                  {selectedDiagnosis.estimated_labor_minutes || "N/A"} minutes
+                </p>
+                <p className="text-sm text-gray-800">
+                  Material cost (est):{" "}
+                  {selectedDiagnosis.estimated_material_cost != null
+                    ? `$${selectedDiagnosis.estimated_material_cost}`
+                    : "N/A"}
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                disabled
+                className="bg-gray-400 text-white px-4 py-2 rounded-md text-sm font-medium cursor-not-allowed"
+              >
+                Calculate Price (coming next phase)
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );
