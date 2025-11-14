@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type Diagnosis = {
   most_likely?: string;
@@ -27,15 +27,15 @@ type MediaItem = {
   contentType?: string;
 };
 
-type RefinedResult = {
+type VisionRecon = {
   vision_summary?: string;
-  vision_hazards?: string[];
-  refined_diagnosis?: {
-    most_likely?: string;
-    alternatives?: string[];
-    confidence?: number;
-    notes?: string;
-  };
+  objects?: string[];
+  visible_damage?: Record<string, any>;
+  hazards?: string[];
+  materials?: Record<string, any>;
+  labels_or_text?: string[];
+  measurements?: Record<string, any>;
+  location_hint?: string;
 };
 
 export default function Home() {
@@ -43,7 +43,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [triageResult, setTriageResult] = useState<TriageResult | null>(null);
 
-  // Phase 3
+  // Phase 3 – checklist + tenant message
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [tenantMessage, setTenantMessage] = useState("");
   const [tenantText, setTenantText] = useState("");
@@ -54,10 +54,36 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Refined diagnosis
-  const [refineLoading, setRefineLoading] = useState(false);
-  const [refineError, setRefineError] = useState<string | null>(null);
-  const [refined, setRefined] = useState<RefinedResult | null>(null);
+  // Vision recon (Phase 4A)
+  const [visionContext, setVisionContext] = useState("");
+  const [visionLoading, setVisionLoading] = useState(false);
+  const [visionError, setVisionError] = useState<string | null>(null);
+  const [visionRecon, setVisionRecon] = useState<VisionRecon | null>(null);
+  const [visionReconRaw, setVisionReconRaw] = useState(""); // editable JSON
+
+  // Auto-generate short context after triage
+  useEffect(() => {
+    if (!triageResult) return;
+    if (visionContext.trim()) return;
+
+    const baseDesc = description.trim().slice(0, 240);
+    const summary = triageResult.summary || "";
+    const cat = triageResult.category || "";
+
+    const auto = [
+      baseDesc && `Job description: ${baseDesc}`,
+      summary && `Initial AI summary: ${summary}`,
+      cat && `Initial AI category: ${cat}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const finalContext =
+      auto +
+      "\n\nFocus your visual description on anything relevant to property maintenance, damage, safety risks, materials, and condition.";
+
+    setVisionContext(finalContext.trim());
+  }, [triageResult, description, visionContext]);
 
   // ------- INITIAL TRIAGE --------
   const runTriage = async () => {
@@ -70,8 +96,9 @@ export default function Home() {
     setTriageResult(null);
     setAnswers({});
     setTenantMessage("");
-    setRefined(null);
-    setRefineError(null);
+    setVisionRecon(null);
+    setVisionReconRaw("");
+    setVisionError(null);
 
     try {
       const res = await fetch("/api/triage", {
@@ -132,8 +159,6 @@ export default function Home() {
     if (!files || files.length === 0) return;
 
     setUploading(true);
-    setRefined(null); // clear previous refined when new media comes
-
     try {
       const newMedia: MediaItem[] = [];
 
@@ -186,26 +211,29 @@ export default function Home() {
     setIsDragging(false);
   };
 
-  // ------- REFINED DIAGNOSIS --------
-  const runRefined = async () => {
-    if (!triageResult) {
-      alert("Run initial triage first.");
+  // ------- RUN VISION RECON (GEMINI) --------
+  const runVisionRecon = async () => {
+    if (!media || media.length === 0) {
+      alert("Please upload at least one photo first.");
       return;
     }
 
-    setRefineLoading(true);
-    setRefined(null);
-    setRefineError(null);
+    if (!visionContext.trim()) {
+      alert("Please provide a short context for vision analysis.");
+      return;
+    }
+
+    setVisionLoading(true);
+    setVisionError(null);
+    setVisionRecon(null);
+    setVisionReconRaw("");
 
     try {
-      const res = await fetch("/api/triage/refine", {
+      const res = await fetch("/api/vision/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          description,
-          questions_checklist: triageResult.questions_checklist || [],
-          answers,
-          tenant_text: tenantText,
+          context: visionContext,
           media,
         }),
       });
@@ -213,16 +241,17 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        console.error("Refine error", data);
-        setRefineError(data.error || "Unknown refine error");
+        console.error("Vision error", data);
+        setVisionError(data.error || "Unknown vision error");
       } else {
-        setRefined(data);
+        setVisionRecon(data);
+        setVisionReconRaw(JSON.stringify(data, null, 2));
       }
     } catch (err: any) {
       console.error(err);
-      setRefineError(err?.message || "Error calling refine API");
+      setVisionError(err?.message || "Error calling vision API");
     } finally {
-      setRefineLoading(false);
+      setVisionLoading(false);
     }
   };
 
@@ -233,18 +262,18 @@ export default function Home() {
   };
 
   return (
-    <main className="p-8 max-w-5xl mx-auto space-y-8">
+    <main className="p-8 max-w-5xl mx-auto space-y-8 bg-slate-50 min-h-screen">
       <header>
         <h1 className="text-3xl font-bold mb-2">CAF Copilot – Triage</h1>
-        <p className="text-gray-600">
-          Paste a job, get a structured triage, checklist, tenant message, and a
-          refined diagnosis based on tenant answers and photos.
+        <p className="text-gray-600 text-sm">
+          Step 1: Run triage (Llama). Step 2: Run vision recon (Gemini). Step 3
+          (next phase): confirm & run final diagnosis.
         </p>
       </header>
 
       {/* STEP 1: DESCRIPTION + INITIAL TRIAGE */}
       <section className="border rounded-xl p-5 space-y-4 bg-white">
-        <h2 className="text-xl font-semibold">Step 1 – Intake</h2>
+        <h2 className="text-xl font-semibold">Step 1 – Intake & Triage</h2>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -264,7 +293,7 @@ export default function Home() {
       {/* INITIAL TRIAGE OUTPUT */}
       {triageResult && (
         <section className="border rounded-xl p-5 space-y-6 bg-white">
-          <h2 className="text-xl font-semibold">Step 2 – Triage Result</h2>
+          <h2 className="text-xl font-semibold">Triage Result</h2>
 
           {/* Category */}
           <div>
@@ -307,7 +336,7 @@ export default function Home() {
           {triageResult.diagnosis && (
             <div className="border-t pt-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-1">
-                Initial Diagnosis
+                Initial Diagnosis (preliminary)
               </h3>
               <p className="text-sm text-gray-800">
                 <strong>Most likely:</strong>{" "}
@@ -333,7 +362,7 @@ export default function Home() {
       {triageResult?.questions_checklist && (
         <section className="border rounded-xl p-5 space-y-4 bg-white">
           <h2 className="text-xl font-semibold">
-            Step 3 – Information Checklist
+            Step 2 – Information Checklist
           </h2>
           <p className="text-sm text-gray-600">
             Answer what you can now. For anything you do not know, click{" "}
@@ -345,7 +374,7 @@ export default function Home() {
             {triageResult.questions_checklist.map((q) => (
               <div
                 key={q.id}
-                className="border rounded-lg p-3 bg-gray-50 space-y-2"
+                className "border rounded-lg p-3 bg-gray-50 space-y-2"
               >
                 <p className="font-medium text-sm">{q.question}</p>
                 {q.reason && (
@@ -356,7 +385,11 @@ export default function Home() {
                   type="text"
                   className="w-full border p-2 rounded text-sm"
                   placeholder="Enter answer or leave empty"
-                  value={answers[q.id] && answers[q.id] !== "I_DONT_KNOW" ? answers[q.id] : ""}
+                  value={
+                    answers[q.id] && answers[q.id] !== "I_DONT_KNOW"
+                      ? answers[q.id]
+                      : ""
+                  }
                   onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                 />
 
@@ -379,6 +412,7 @@ export default function Home() {
             Confirm & Generate Tenant Message
           </button>
 
+          {/* Tenant message */}
           {tenantMessage && (
             <div className="mt-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-1">
@@ -388,35 +422,39 @@ export default function Home() {
                 readOnly
                 value={tenantMessage}
                 className="w-full border p-3 rounded bg-gray-50 text-sm"
-                rows={5}
+                rows={4}
               />
             </div>
           )}
-        </section>
-      )}
-
-      {/* TENANT REPLY + MEDIA UPLOAD + REFINED DIAGNOSIS */}
-      {(tenantMessage || triageResult) && (
-        <section className="border rounded-xl p-5 space-y-5 bg-white">
-          <h2 className="text-xl font-semibold">
-            Step 4 – Tenant Reply & Evidence
-          </h2>
 
           {/* Tenant reply text */}
-          <div className="space-y-2">
+          <div className="mt-4 space-y-2">
             <h3 className="text-sm font-semibold text-gray-700">
-              Tenant Reply (text)
+              Tenant Reply / Call Notes (text)
             </h3>
             <textarea
               value={tenantText}
               onChange={(e) => setTenantText(e.target.value)}
-              placeholder="Paste the tenant's reply or your call notes here..."
+              placeholder="Later, paste the tenant's reply or your call notes here..."
               className="w-full border p-3 rounded text-sm"
-              rows={4}
+              rows={3}
             />
           </div>
+        </section>
+      )}
 
-          {/* Unified dropzone */}
+      {/* MEDIA UPLOAD + VISION RECON */}
+      {(triageResult || tenantText || tenantMessage) && (
+        <section className="border rounded-xl p-5 space-y-5 bg-white">
+          <h2 className="text-xl font-semibold">Step 3 – Vision Recon (Gemini)</h2>
+          <p className="text-sm text-gray-600">
+            Upload tenant photos / videos below, review or edit the short context,
+            then run vision recon. Gemini will describe what it sees in detail,
+            without diagnosing. You can edit the recon JSON before we use it in
+            the final diagnosis phase.
+          </p>
+
+          {/* Upload area */}
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-gray-700">
               Tenant Photos / Videos
@@ -436,9 +474,9 @@ export default function Home() {
                 Drag and drop files here, or click to select.
               </p>
               <p className="text-xs text-gray-500">
-                Images and videos are accepted. For now, AI will only{" "}
-                <span className="font-semibold">analyze images</span> directly;
-                videos are stored for reference.
+                Images and videos are accepted. For now, AI will only analyze{" "}
+                <span className="font-semibold">images</span> directly; videos are
+                stored for reference.
               </p>
               <input
                 type="file"
@@ -451,9 +489,7 @@ export default function Home() {
             </div>
 
             {uploading && (
-              <p className="text-xs text-gray-500 mt-1">
-                Uploading files...
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Uploading files...</p>
             )}
 
             {media.length > 0 && (
@@ -470,9 +506,7 @@ export default function Home() {
                         rel="noreferrer"
                         className="underline break-all"
                       >
-                        {m.contentType?.startsWith("image/")
-                          ? "Image"
-                          : "File"}{" "}
+                        {m.contentType?.startsWith("image/") ? "Image" : "File"}{" "}
                         {i + 1}
                       </a>
                       {m.contentType && (
@@ -487,43 +521,58 @@ export default function Home() {
             )}
           </div>
 
-          {/* Run refined analysis */}
-          <div className="pt-2">
+          {/* Vision context */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-gray-700">
+              Short Context for Vision
+            </h3>
+            <p className="text-xs text-gray-500 mb-1">
+              Copilot auto-generates this from the job and triage. You can edit it
+              before running vision recon.
+            </p>
+            <textarea
+              value={visionContext}
+              onChange={(e) => setVisionContext(e.target.value)}
+              className="w-full border p-3 rounded text-sm"
+              rows={4}
+              placeholder="Short description of the job for Gemini to focus its visual analysis..."
+            />
+          </div>
+
+          {/* Run Vision Recon */}
+          <div>
             <button
               type="button"
-              onClick={runRefined}
-              disabled={refineLoading}
+              onClick={runVisionRecon}
+              disabled={visionLoading}
               className="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-purple-700 disabled:bg-gray-400"
             >
-              {refineLoading
-                ? "Running refined analysis..."
-                : "Run Refined Diagnosis"}
+              {visionLoading ? "Running vision recon..." : "Run Vision Recon"}
             </button>
-
-            {refineError && (
-              <p className="text-xs text-red-600 mt-2">{refineError}</p>
+            {visionError && (
+              <p className="text-xs text-red-600 mt-2">{visionError}</p>
             )}
           </div>
 
-          {/* Refined result */}
-          {refined && (
+          {/* Vision recon output */}
+          {visionRecon && (
             <div className="mt-4 border-t pt-4 space-y-4">
               <div>
                 <h3 className="text-sm font-semibold text-gray-700">
                   Vision Summary
                 </h3>
                 <p className="text-sm text-gray-800 mt-1">
-                  {refined.vision_summary || "No vision summary provided."}
+                  {visionRecon.vision_summary || "No vision summary provided."}
                 </p>
               </div>
 
-              {refined.vision_hazards && refined.vision_hazards.length > 0 && (
+              {visionRecon.hazards && visionRecon.hazards.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700">
                     Vision Hazards
                   </h3>
                   <div className="mt-1 flex flex-wrap gap-2">
-                    {refined.vision_hazards.map((h, i) => (
+                    {visionRecon.hazards.map((h, i) => (
                       <span
                         key={i}
                         className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs"
@@ -535,34 +584,44 @@ export default function Home() {
                 </div>
               )}
 
-              {refined.refined_diagnosis && (
-                <div className="border rounded-lg p-3 bg-gray-50 space-y-1">
+              {visionRecon.objects && visionRecon.objects.length > 0 && (
+                <div>
                   <h3 className="text-sm font-semibold text-gray-700">
-                    Refined Diagnosis
+                    Key Objects
                   </h3>
-                  <p className="text-sm text-gray-800">
-                    <strong>Most likely:</strong>{" "}
-                    {refined.refined_diagnosis.most_likely || "N/A"}
+                  <p className="text-sm text-gray-800 mt-1">
+                    {visionRecon.objects.join(", ")}
                   </p>
-                  {refined.refined_diagnosis.alternatives &&
-                    refined.refined_diagnosis.alternatives.length > 0 && (
-                      <p className="text-sm text-gray-800">
-                        <strong>Alternatives:</strong>{" "}
-                        {refined.refined_diagnosis.alternatives.join(", ")}
-                      </p>
-                    )}
-                  <p className="text-sm text-gray-800">
-                    <strong>Confidence:</strong>{" "}
-                    {formatConfidence(refined.refined_diagnosis.confidence)}
-                  </p>
-                  {refined.refined_diagnosis.notes && (
-                    <p className="text-sm text-gray-700 mt-1">
-                      <strong>Notes:</strong>{" "}
-                      {refined.refined_diagnosis.notes}
-                    </p>
-                  )}
                 </div>
               )}
+
+              {/* Editable raw JSON */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                  Recon JSON (editable)
+                </h3>
+                <p className="text-xs text-gray-500 mb-1">
+                  This is the full recon report from Gemini. You can edit this
+                  before we send it into the final diagnosis step in the next
+                  phase.
+                </p>
+                <textarea
+                  value={visionReconRaw}
+                  onChange={(e) => setVisionReconRaw(e.target.value)}
+                  className="w-full border p-3 rounded text-xs font-mono bg-gray-50"
+                  rows={12}
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  disabled
+                  className="bg-gray-400 text-white px-4 py-2 rounded-md text-sm font-medium cursor-not-allowed"
+                >
+                  Confirm & Run Final Diagnosis (coming in Phase 4B)
+                </button>
+              </div>
             </div>
           )}
         </section>
