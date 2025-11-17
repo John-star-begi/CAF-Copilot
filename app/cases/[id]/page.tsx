@@ -1023,245 +1023,230 @@ export default function CaseWorkspacePage() {
           )}
 
           {/* Diagnosis cards */}
-          {finalDiagResult && finalDiagResult.diagnoses && (
-            <div className="mt-6 border-t pt-4 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700">
-                Diagnosis Options
-              </h3>
-              <p className="text-xs text-gray-500">
-                Click a card to view the full repair process and pricing
-                suggestion.
-              </p>
+{finalDiagResult && finalDiagResult.diagnoses && (
+  <section className="border rounded-xl p-5 space-y-4 bg-white mt-6">
+    <h2 className="text-xl font-semibold">Diagnosis Options</h2>
+    <p className="text-xs text-gray-500">
+      Click any card to open the full repair process and pricing modal.
+    </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                {finalDiagResult.diagnoses.map((d, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setSelectedDiagIndex(idx)}
-                    className={`text-left border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-sm transition cursor-pointer ${
-                      selectedDiagIndex === idx ? "ring-2 ring-slate-900" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-semibold text-gray-900">
-                        {d.title || `Diagnosis ${idx + 1}`}
-                      </h4>
-                      <span
-                        className={`text-xs px-2 py-1 rounded-full ${severityColor(
-                          d.severity
-                        )}`}
-                      >
-                        {d.severity || "unknown"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-700 mb-2 line-clamp-2">
-                      {d.description}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                      <span>
-                        Confidence: {formatConfidence(d.confidence)}
-                      </span>
-                      <span>•</span>
-                      <span>{formatUrgency(d.urgency_hours)}</span>
-                      {d.trade_required && (
-                        <>
-                          <span>•</span>
-                          <span>Trade: {d.trade_required}</span>
-                        </>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* MODAL FOR SELECTED DIAGNOSIS + PRICING */}
-      {selectedDiagnosis && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-auto p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {selectedDiagnosis.title}
-                </h2>
-                <p className="text-xs text-gray-600 mt-1">
-                  Confidence: {formatConfidence(selectedDiagnosis.confidence)} •{" "}
-                  {formatUrgency(selectedDiagnosis.urgency_hours)} • Trade:{" "}
-                  {selectedDiagnosis.trade_required || "N/A"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedDiagIndex(null)}
-                className="text-xs text-gray-500 hover:text-gray-800"
-              >
-                Close ✕
-              </button>
-            </div>
-
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {finalDiagResult.diagnoses.map((d, idx) => (
+        <button
+          key={idx}
+          type="button"
+          onClick={() => setSelectedDiagIndex(idx)}
+          className={`text-left border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-md transition cursor-pointer ${
+            selectedDiagIndex === idx ? "ring-2 ring-slate-900" : ""
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-900">
+              {d.title || `Diagnosis ${idx + 1}`}
+            </h4>
             <span
-              className={`inline-flex px-3 py-1 rounded-full text-xs ${severityColor(
-                selectedDiagnosis.severity
+              className={`text-xs px-2 py-1 rounded-full ${severityColor(
+                d.severity
               )}`}
             >
-              Severity: {selectedDiagnosis.severity || "unknown"}
+              {d.severity || "unknown"}
             </span>
-
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                Description
-              </h3>
-              <p className="text-sm text-gray-800">
-                {selectedDiagnosis.description}
-              </p>
-            </div>
-
-            {selectedDiagnosis.safety_concerns &&
-              selectedDiagnosis.safety_concerns.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                    Safety Concerns
-                  </h3>
-                  <ul className="list-disc list-inside text-sm text-gray-800">
-                    {selectedDiagnosis.safety_concerns.map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                Typical Repair Process (Tradesperson)
-              </h3>
-              {selectedDiagnosis.repair_steps &&
-              selectedDiagnosis.repair_steps.length > 0 ? (
-                <ol className="list-decimal list-inside text-sm text-gray-800 space-y-1">
-                  {selectedDiagnosis.repair_steps.map((step, i) => (
-                    <li key={i}>{step}</li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="text-sm text-gray-600">
-                  No repair steps provided.
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                  Materials Needed
-                </h3>
-                {selectedDiagnosis.materials_needed &&
-                selectedDiagnosis.materials_needed.length > 0 ? (
-                  <ul className="list-disc list-inside text-sm text-gray-800">
-                    {selectedDiagnosis.materials_needed.map((m, i) => (
-                      <li key={i}>{m}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-600">
-                    No specific materials listed.
-                  </p>
-                )}
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-gray-800 mb-1">
-                  Estimated Effort
-                </h3>
-                <p className="text-sm text-gray-800">
-                  Labour:{" "}
-                  {selectedDiagnosis.estimated_labor_minutes || "N/A"} minutes
-                </p>
-                <p className="text-sm text-gray-800">
-                  Material cost (est):{" "}
-                  {selectedDiagnosis.estimated_material_cost != null
-                    ? `$${selectedDiagnosis.estimated_material_cost}`
-                    : "N/A"}
-                </p>
-              </div>
-            </div>
-
-            {/* Pricing section */}
-            <div className="pt-3 border-t mt-2 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-gray-800">
-                  Pricing Suggestion (AI)
-                </h3>
-                <button
-                  type="button"
-                  onClick={runPricing}
-                  disabled={pricingLoading}
-                  className="bg-slate-900 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-black disabled:bg-gray-400"
-                >
-                  {pricingLoading ? "Calculating..." : "Calculate Price"}
-                </button>
-              </div>
-              {pricingError && (
-                <p className="text-xs text-red-600">{pricingError}</p>
-              )}
-
-              {selectedPricing && (
-                <div className="text-sm text-gray-800 space-y-1 bg-gray-50 rounded-lg p-3">
-                  <p className="font-semibold">
-                    Recommended quote:{" "}
-                    <span className="text-slate-900">
-                      {selectedPricing.currency}{" "}
-                      {selectedPricing.final_recommended_price.toFixed(2)}
-                    </span>
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    (AI suggestion only – final price is at dispatcher&apos;s
-                    discretion.)
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-3 mt-2">
-                    <div>
-                      <p>
-                        Labour est: {selectedPricing.labour_minutes_estimated}{" "}
-                        minutes
-                      </p>
-                      <p>
-                        Labour cost: {selectedPricing.currency}{" "}
-                        {selectedPricing.labour_cost_estimated.toFixed(2)}
-                      </p>
-                    </div>
-                    <div>
-                      <p>
-                        Materials (base): {selectedPricing.currency}{" "}
-                        {selectedPricing.materials_cost_estimated.toFixed(2)}
-                      </p>
-                      <p>
-                        Materials + buffer + markup: {selectedPricing.currency}{" "}
-                        {selectedPricing.materials_with_markup.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-gray-700 mt-2">
-                    Subtotal before markup: {selectedPricing.currency}{" "}
-                    {selectedPricing.subtotal_before_markup.toFixed(2)} • Job
-                    markup: {selectedPricing.job_markup_percent}% (
-                    {selectedPricing.currency}{" "}
-                    {selectedPricing.job_markup_amount.toFixed(2)})
-                  </p>
-
-                  {selectedPricing.notes && (
-                    <p className="text-xs text-gray-600 mt-1">
-                      Notes: {selectedPricing.notes}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
+
+          <p className="text-xs text-gray-700 mb-2 line-clamp-2">
+            {d.description}
+          </p>
+
+          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+            <span>Confidence: {formatConfidence(d.confidence)}</span>
+            <span>•</span>
+            <span>{formatUrgency(d.urgency_hours)}</span>
+            {d.trade_required && (
+              <>
+                <span>•</span>
+                <span>Trade: {d.trade_required}</span>
+              </>
+            )}
+          </div>
+        </button>
+      ))}
+    </div>
+  </section>
+)}
+
+{/* MODAL FOR SELECTED DIAGNOSIS + PRICING */}
+{selectedDiagnosis && (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-auto p-5 space-y-4 animate-fadeIn">
+
+      {/* HEADER */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">
+            {selectedDiagnosis.title}
+          </h2>
+          <p className="text-xs text-gray-600 mt-1">
+            Confidence: {formatConfidence(selectedDiagnosis.confidence)} •{" "}
+            {formatUrgency(selectedDiagnosis.urgency_hours)} • Trade:{" "}
+            {selectedDiagnosis.trade_required || "N/A"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSelectedDiagIndex(null)}
+          className="text-gray-500 hover:text-gray-800 text-sm"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* SEVERITY BADGE */}
+      <span
+        className={`inline-flex px-3 py-1 rounded-full text-xs ${severityColor(
+          selectedDiagnosis.severity
+        )}`}
+      >
+        Severity: {selectedDiagnosis.severity || "unknown"}
+      </span>
+
+      {/* DESCRIPTION */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">
+          Description
+        </h3>
+        <p className="text-sm text-gray-800">{selectedDiagnosis.description}</p>
+      </div>
+
+      {/* SAFETY */}
+      {selectedDiagnosis.safety_concerns?.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800 mb-1">
+            Safety Concerns
+          </h3>
+          <ul className="list-disc list-inside text-sm text-gray-800">
+            {selectedDiagnosis.safety_concerns.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
         </div>
       )}
-    </main>
-  );
-}
+
+      {/* REPAIR STEPS */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">
+          Typical Repair Process
+        </h3>
+        {selectedDiagnosis.repair_steps?.length > 0 ? (
+          <ol className="list-decimal list-inside text-sm text-gray-800 space-y-1">
+            {selectedDiagnosis.repair_steps.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-sm text-gray-600">No repair steps provided.</p>
+        )}
+      </div>
+
+      {/* MATERIALS + LABOUR */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800 mb-1">
+            Materials Needed
+          </h3>
+          {selectedDiagnosis.materials_needed?.length > 0 ? (
+            <ul className="list-disc list-inside text-sm text-gray-800">
+              {selectedDiagnosis.materials_needed.map((m, i) => (
+                <li key={i}>{m}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-600">No materials listed.</p>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800 mb-1">
+            Estimated Effort
+          </h3>
+          <p className="text-sm text-gray-800">
+            Labour: {selectedDiagnosis.estimated_labor_minutes || "N/A"} minutes
+          </p>
+          <p className="text-sm text-gray-800">
+            Material cost est:{" "}
+            {selectedDiagnosis.estimated_material_cost != null
+              ? `$${selectedDiagnosis.estimated_material_cost}`
+              : "N/A"}
+          </p>
+        </div>
+      </div>
+
+      {/* PRICING */}
+      <div className="pt-3 border-t space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">
+            Pricing Suggestion
+          </h3>
+          <button
+            type="button"
+            onClick={runPricing}
+            disabled={pricingLoading}
+            className="bg-slate-900 text-white px-3 py-1.5 rounded-md text-xs hover:bg-black disabled:bg-gray-400"
+          >
+            {pricingLoading ? "Calculating..." : "Calculate Price"}
+          </button>
+        </div>
+
+        {pricingError && (
+          <p className="text-xs text-red-600">{pricingError}</p>
+        )}
+
+        {/* PRICING BLOCK */}
+        {selectedPricing && (
+          <div className="text-sm text-gray-800 bg-gray-50 rounded-lg p-3 space-y-1">
+            <p className="font-semibold">
+              Recommended Quote:{" "}
+              <span className="text-slate-900">
+                {selectedPricing.currency}{" "}
+                {selectedPricing.final_recommended_price.toFixed(2)}
+              </span>
+            </p>
+
+            <p className="text-xs text-gray-500">
+              (AI suggestion only – dispatcher decides final price.)
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <div>
+                <p>
+                  Labour est: {selectedPricing.labour_minutes_estimated} minutes
+                </p>
+                <p>
+                  Labour cost: {selectedPricing.currency}{" "}
+                  {selectedPricing.labour_cost_estimated.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p>
+                  Materials base: {selectedPricing.currency}{" "}
+                  {selectedPricing.materials_cost_estimated.toFixed(2)}
+                </p>
+                <p>
+                  Materials + markup: {selectedPricing.currency}{" "}
+                  {selectedPricing.materials_with_markup.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-700 mt-2">
+              Subtotal: {selectedPricing.currency}{" "}
+              {selectedPricing.subtotal_before_markup.toFixed(2)} • Markup:{" "}
+              {selectedPricing.job_markup_percent}% (
+              {selectedPricing.currency}{" "}
+              {selectedPricing.job_markup_amount.toFixed(2)})
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
