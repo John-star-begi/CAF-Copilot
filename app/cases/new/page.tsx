@@ -1,71 +1,33 @@
-"use client";
+import { supabase } from "@/lib/supabase";
+import { redirect } from "next/navigation";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+export const revalidate = 0;
 
-export default function NewCasePage() {
-  const router = useRouter();
+export default async function NewCasePage() {
+  // 1. Create empty case
+  const { data, error } = await supabase
+    .from("cases")
+    .insert([
+      {
+        title: null,
+        description: "",
+        eaco_id: null,
+        triage: null,
+        vision: null,
+        diagnosis: null,
+        pricing: null,
+        media: [],
+        status: "new",
+      },
+    ])
+    .select()
+    .single();
 
-  const [eacoId, setEacoId] = useState("");
-  const [description, setDescription] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function createCase() {
-    setLoading(true);
-
-    const res = await fetch("/api/cases/create", {
-      method: "POST",
-      body: JSON.stringify({
-        eaco_id: eacoId,
-        description
-      }),
-    });
-
-    const data = await res.json();
-
-    if (data?.case?.id) {
-      router.push(`/cases/${data.case.id}`);
-    } else {
-      alert("Failed to create case");
-    }
-
-    setLoading(false);
+  if (error) {
+    console.error(error);
+    return <p>Error creating case.</p>;
   }
 
-  return (
-    <main className="p-6 max-w-3xl mx-auto space-y-6">
-      <h1 className="text-3xl font-bold">New Case</h1>
-
-      <div className="space-y-4">
-        <div>
-          <label className="block font-semibold mb-1">EACO Job ID</label>
-          <input
-            className="border rounded w-full p-2"
-            placeholder="Example: WO-391241"
-            value={eacoId}
-            onChange={(e) => setEacoId(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="block font-semibold mb-1">Job Description</label>
-          <textarea
-            className="border rounded w-full p-2"
-            rows={5}
-            placeholder="Enter tenant's description..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
-        <button
-          onClick={createCase}
-          disabled={loading || !eacoId || !description}
-          className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
-        >
-          {loading ? "Creating..." : "Create Case"}
-        </button>
-      </div>
-    </main>
-  );
+  // 2. Redirect to workspace
+  redirect(`/cases/${data.id}`);
 }
