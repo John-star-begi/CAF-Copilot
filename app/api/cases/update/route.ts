@@ -1,47 +1,63 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+// Auto-generate a title from triage result
+function generateTitleFromTriage(triage: any): string {
+  if (!triage) return "Untitled Case";
+
+  const category = triage.category || "General";
+  const summary = triage.summary
+    ? triage.summary.slice(0, 60)
+    : "No summary";
+
+  return `${category}: ${summary}`;
+}
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { id, updates } = body;
+    const { id, updates } = await req.json();
 
-    // Fetch existing case data
-    const { data: existing, error: fetchError } = await supabase
-      .from("cases")
-      .select("eaco_id, triage")
-      .eq("id", id)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    let autoTitle = null;
-
-    // Use updated triage or existing triage
-    const triageData = updates.triage || existing?.triage;
-
-    // Only generate automatic title if triage has required fields
-    if (triageData?.category && triageData?.summary && existing?.eaco_id) {
-      autoTitle = `${triageData.category} — ${triageData.summary} — EACO #${existing.eaco_id}`;
+    if (!id) {
+      return NextResponse.json(
+        { error: "Missing case ID" },
+        { status: 400 }
+      );
     }
 
-    const finalUpdate = autoTitle
-      ? { ...updates, title: autoTitle }
-      : updates;
+    if (!updates || typeof updates !== "object") {
+      return NextResponse.json(
+        { error: "Invalid updates object" },
+        { status: 400 }
+      );
+    }
 
-    // Update case
+    // If triage was updated -> auto-generate title
+    if (updates.triage) {
+      updates.title = generateTitleFromTriage(updates.triage);
+    }
+
+    // Update DB
     const { data, error } = await supabase
       .from("cases")
-      .update(finalUpdate)
+      .update(updates)
       .eq("id", id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Supabase update error:", error);
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ success: true, case: data });
-
+    return NextResponse.json({ case: data });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Unexpected update error:", err);
+    return NextResponse.json(
+      { error: err.message || "Unexpected server error" },
+      { status: 500 }
+    );
   }
 }
