@@ -1022,7 +1022,7 @@ export default function CaseWorkspacePage() {
             </div>
           )}
 
-          {/* Diagnosis cards */}
+         {/* Diagnosis cards */}
 {finalDiagResult && finalDiagResult.diagnoses && (
   <section className="border rounded-xl p-5 space-y-4 bg-white mt-6">
     <h2 className="text-xl font-semibold">Diagnosis Options</h2>
@@ -1200,7 +1200,6 @@ export default function CaseWorkspacePage() {
           <p className="text-xs text-red-600">{pricingError}</p>
         )}
 
-        {/* PRICING BLOCK */}
         {selectedPricing && (
           <div className="text-sm text-gray-800 bg-gray-50 rounded-lg p-3 space-y-1">
             <p className="font-semibold">
